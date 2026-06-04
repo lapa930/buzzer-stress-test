@@ -6,16 +6,20 @@ on:
       target_url:
         description: '대상 서버 URL'
         required: true
-        default: 'https://bc.yonsei.or.kr/'
+        default: 'https://bc.yonsei.or.kr'
+      api_prefix:
+        description: 'API 경로 prefix (nginx 경유: /hidden, 직접: 빈칸)'
+        required: true
+        default: '/hidden'
       test_type:
         description: '테스트 종류'
         required: true
         type: choice
         options:
-          - 'buzz_2000_concurrent'    # 버즈 2000명 동시
-          - 'buzz_1000_concurrent'    # 버즈 1000명 동시
-          - 'page_2000_concurrent'    # 페이지 로딩 2000명 동시
-          - 'both_1000_concurrent'    # 버즈 + 페이지 동시
+          - 'buzz_2000_concurrent'
+          - 'buzz_1000_concurrent'
+          - 'page_2000_concurrent'
+          - 'both_1000_concurrent'
         default: 'buzz_2000_concurrent'
       vote_id:
         description: 'vote_id (비워두면 자동 생성)'
@@ -23,93 +27,90 @@ on:
         default: ''
 
 jobs:
-  # ── Step 1: vote 준비 (buzz 테스트용) ────────────────────
+  # ── Vote 준비 ───────────────────────────────────────────
   prepare:
     runs-on: ubuntu-latest
     outputs:
       vote_id: ${{ steps.prep.outputs.vote_id }}
     steps:
-      - name: Vote 준비
+      - name: Vote 생성 및 활성화
         id: prep
         run: |
           URL="${{ github.event.inputs.target_url }}"
+          PREFIX="${{ github.event.inputs.api_prefix }}"
           ADMIN="${{ secrets.ADMIN_PASSWORD }}"
-          GIVEN_VOTE="${{ github.event.inputs.vote_id }}"
+          GIVEN="${{ github.event.inputs.vote_id }}"
 
-          if [ -n "$GIVEN_VOTE" ]; then
-            echo "vote_id=$GIVEN_VOTE" >> $GITHUB_OUTPUT
-            echo "기존 vote 사용: $GIVEN_VOTE"
+          if [ -n "$GIVEN" ]; then
+            echo "vote_id=$GIVEN" >> $GITHUB_OUTPUT
+            echo "기존 vote 사용: $GIVEN"
             exit 0
           fi
 
-          echo "새 vote 생성 중..."
-          RESP=$(curl -sf -X POST "$URL/hidden/api/votes" \
+          echo "Vote 생성 중... → $URL$PREFIX/api/votes"
+
+          RESP=$(curl -sf -X POST "$URL$PREFIX/api/votes" \
             -H "Content-Type: application/json" \
             -H "X-Admin-Password: $ADMIN" \
             -d '{"title":"GitHub-StressTest","count_max":99999}')
 
+          echo "응답: $RESP"
           VOTE_ID=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 
-          curl -sf -X POST "$URL/hidden/api/votes/$VOTE_ID/enable" \
-            -H "X-Admin-Password: $ADMIN" > /dev/null
+          echo "Enable → $URL$PREFIX/api/votes/$VOTE_ID/enable"
+          curl -sf -X POST "$URL$PREFIX/api/votes/$VOTE_ID/enable" \
+            -H "X-Admin-Password: $ADMIN"
 
           echo "vote_id=$VOTE_ID" >> $GITHUB_OUTPUT
-          echo "✅ Vote 생성 및 활성화: $VOTE_ID"
+          echo "✅ Vote 준비 완료: $VOTE_ID"
 
-  # ── Step 2: 버즈 API 테스트 (20 runners × 100 동시 = 2000 동시) ──
+  # ── 버즈 API 테스트 (20 runners 병렬) ───────────────────
   buzz_test:
     needs: prepare
     if: contains(github.event.inputs.test_type, 'buzz') || contains(github.event.inputs.test_type, 'both')
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # 20개 runner 병렬 실행
-        # runner당: 사용자 1000명, 동시 100개 → 전체 20000명, 동시 2000개
         runner_id: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
       fail-fast: false
     steps:
-      - name: 코드 체크아웃
-        uses: actions/checkout@v4
-
-      - name: Python 설정
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - run: pip install aiohttp -q
 
-      - name: aiohttp 설치
-        run: pip install aiohttp -q
-
-      - name: 동시성 계산
+      - name: 동시 요청 수 계산
         id: calc
         run: |
-          TYPE="${{ github.event.inputs.test_type }}"
-          if [[ "$TYPE" == "buzz_1000_concurrent" ]]; then
-            echo "conc=50" >> $GITHUB_OUTPUT   # 20×50 = 1000 동시
+          if [[ "${{ github.event.inputs.test_type }}" == *"1000"* ]]; then
+            echo "conc=50" >> $GITHUB_OUTPUT
           else
-            echo "conc=100" >> $GITHUB_OUTPUT  # 20×100 = 2000 동시
+            echo "conc=100" >> $GITHUB_OUTPUT
           fi
 
-      - name: 버즈 테스트 실행 (Runner #${{ matrix.runner_id }})
+      - name: 버즈 테스트 (Runner #${{ matrix.runner_id }})
         run: |
+          # 아래 경로가 실제 호출되는 URL:
+          # ${{ github.event.inputs.target_url }}${{ github.event.inputs.api_prefix }}/api/buzz
           python3 stress_buzz.py \
-            --url "${{ github.event.inputs.target_url }}" \
-            --users 1000 \
-            --conc ${{ steps.calc.outputs.conc }} \
-            --vote "${{ needs.prepare.outputs.vote_id }}" \
-            --admin "${{ secrets.ADMIN_PASSWORD }}" \
-            --runner-id ${{ matrix.runner_id }} \
+            --url        "${{ github.event.inputs.target_url }}" \
+            --api-prefix "${{ github.event.inputs.api_prefix }}" \
+            --users      1000 \
+            --conc       ${{ steps.calc.outputs.conc }} \
+            --vote       "${{ needs.prepare.outputs.vote_id }}" \
+            --admin      "${{ secrets.ADMIN_PASSWORD }}" \
+            --runner-id  ${{ matrix.runner_id }} \
             | tee result.txt
-          echo "--- Runner ${{ matrix.runner_id }} 완료 ---"
 
-      - name: 결과 저장
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: buzz-runner-${{ matrix.runner_id }}
           path: result.txt
           retention-days: 7
 
-  # ── Step 3: 페이지 로딩 테스트 (20 runners × 100 동시 = 2000 동시) ──
+  # ── 페이지 로딩 테스트 ──────────────────────────────────
   page_test:
     needs: prepare
     if: contains(github.event.inputs.test_type, 'page') || contains(github.event.inputs.test_type, 'both')
@@ -127,10 +128,11 @@ jobs:
 
       - name: 페이지 로딩 테스트 (Runner #${{ matrix.runner_id }})
         run: |
+          # 페이지 URL: ${{ github.event.inputs.target_url }}/hidden/vote
           python3 stress_page.py \
-            --url "${{ github.event.inputs.target_url }}" \
-            --total 500 \
-            --conc 100 \
+            --url       "${{ github.event.inputs.target_url }}" \
+            --total     500 \
+            --conc      100 \
             --runner-id ${{ matrix.runner_id }} \
             | tee result.txt
 
@@ -141,46 +143,46 @@ jobs:
           path: result.txt
           retention-days: 7
 
-  # ── Step 4: 전체 집계 ────────────────────────────────────
+  # ── 최종 집계 ────────────────────────────────────────────
   summary:
     needs: [prepare, buzz_test, page_test]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: 결과 파일 다운로드
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: results/
 
-      - name: 전체 집계 리포트
+      - name: 전체 결과 집계
         run: |
           URL="${{ github.event.inputs.target_url }}"
+          PREFIX="${{ github.event.inputs.api_prefix }}"
           ADMIN="${{ secrets.ADMIN_PASSWORD }}"
           VOTE_ID="${{ needs.prepare.outputs.vote_id }}"
 
           echo "================================================"
-          echo "  최종 결과 집계"
-          echo "  테스트 유형: ${{ github.event.inputs.test_type }}"
+          echo "  테스트: ${{ github.event.inputs.test_type }}"
+          echo "  대상  : $URL$PREFIX/api/..."
           echo "================================================"
 
-          # 개별 runner 결과 출력
-          for f in results/**/*.txt; do
-            cat "$f" 2>/dev/null
+          # 모든 runner 결과 출력
+          for f in $(find results -name "*.txt" | sort); do
+            echo ""
+            echo "--- $f ---"
+            cat "$f"
           done
 
-          # DB 검증
+          # DB 최종 검증
           if [ -n "$VOTE_ID" ]; then
             sleep 2
-            RESULT=$(curl -sf "$URL/hidden/api/votes/$VOTE_ID/result" \
-              -H "X-Admin-Password: $ADMIN" 2>/dev/null)
-            if [ -n "$RESULT" ]; then
-              UNIQUE=$(echo "$RESULT" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['unique_count'])")
-              TOTAL=$(echo "$RESULT" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['total_submissions'])")
-              echo ""
-              echo "================================================"
-              echo "  DB 최종 검증"
-              echo "  고유 참가자 수: $UNIQUE"
-              echo "  총 클릭 수    : $TOTAL"
-              echo "================================================"
-            fi
+            RESULT=$(curl -sf "$URL$PREFIX/api/votes/$VOTE_ID/result" \
+              -H "X-Admin-Password: $ADMIN" 2>/dev/null || echo "{}")
+            UNIQUE=$(echo "$RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('unique_count','?'))" 2>/dev/null)
+            TOTAL=$(echo "$RESULT"  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('total_submissions','?'))" 2>/dev/null)
+            echo ""
+            echo "================================================"
+            echo "  DB 최종 검증"
+            echo "  고유 참가자 : $UNIQUE / 20,000"
+            echo "  총 클릭 수  : $TOTAL"
+            echo "================================================"
           fi
