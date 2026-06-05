@@ -43,7 +43,7 @@ async def check_connection(session) -> bool:
 async def gen_token(session, sem):
     async with sem:
         try:
-            async with session.post(EP_TOKEN, timeout=aiohttp.ClientTimeout(total=10)) as r:
+            async with session.post(EP_TOKEN, timeout=aiohttp.ClientTimeout(total=20)) as r:
                 if r.status != 200:
                     async with lock: err_list.append(f"HTTP {r.status}")
                     return None
