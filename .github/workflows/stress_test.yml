@@ -23,7 +23,7 @@ on:
       sync_delay:
         description: '동기화 대기 시간(초) — 토큰 생성 후 일제 시작까지 여유시간'
         required: true
-        default: '120'
+        default: '60'
       vote_id:
         description: 'vote_id (비워두면 자동 생성)'
         required: false
@@ -96,7 +96,7 @@ jobs:
           if [[ "${{ github.event.inputs.test_type }}" == *"1000"* ]]; then
             echo "conc=50" >> $GITHUB_OUTPUT   # 10×50 = 500 동시
           else
-            echo "conc=100" >> $GITHUB_OUTPUT  # 10×100 = 1,000 동시
+            echo "conc=150" >> $GITHUB_OUTPUT  # 10×150 = 1,500 동시
           fi
 
       - name: 버즈 테스트 (Runner #${{ matrix.runner_id }})
@@ -108,7 +108,7 @@ jobs:
           python3 stress_buzz.py \
             --url        "${{ github.event.inputs.target_url }}" \
             --api-prefix "${{ github.event.inputs.api_prefix }}" \
-            --users      2000 \
+            --users      1500 \
             --conc       ${{ steps.calc.outputs.conc }} \
             --vote       "${{ needs.prepare.outputs.vote_id }}" \
             --admin      "${{ secrets.ADMIN_PASSWORD }}" \
@@ -144,7 +144,7 @@ jobs:
           python3 stress_page.py \
             --url       "${{ github.event.inputs.target_url }}" \
             --total     500 \
-            --conc      100 \
+            --conc      300 \
             --runner-id ${{ matrix.runner_id }} \
             | tee result.txt
 
