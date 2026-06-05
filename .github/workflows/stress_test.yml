@@ -108,7 +108,7 @@ jobs:
           python3 stress_buzz.py \
             --url        "${{ github.event.inputs.target_url }}" \
             --api-prefix "${{ github.event.inputs.api_prefix }}" \
-            --users      1000 \
+            --users      2000 \
             --conc       ${{ steps.calc.outputs.conc }} \
             --vote       "${{ needs.prepare.outputs.vote_id }}" \
             --admin      "${{ secrets.ADMIN_PASSWORD }}" \
