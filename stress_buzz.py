@@ -7,8 +7,8 @@ from collections import Counter
 parser = argparse.ArgumentParser()
 parser.add_argument("--url",        default="https://bc.yonsei.or.kr")
 parser.add_argument("--api-prefix", default="/hidden", dest="api_prefix")
-parser.add_argument("--users",      type=int,   default=1000)
-parser.add_argument("--conc",       type=int,   default=100)
+parser.add_argument("--users",      type=int,   default=1500)
+parser.add_argument("--conc",       type=int,   default=300)
 parser.add_argument("--vote",       default=None)
 parser.add_argument("--admin",      default="hidden_admin")
 parser.add_argument("--runner-id",  type=int,   default=1)
@@ -76,7 +76,7 @@ async def ensure_vote(session):
         log(f"vote: {args.vote}")
         return args.vote
     async with session.post(EP_VOTES,
-        json={"title": "StressTest", "count_max": 99999}, headers=hdrs()) as r:
+        json={"title": "StressTest", "count_max": 9999}, headers=hdrs()) as r:
         vid = (await r.json(content_type=None))["id"]
     async with session.post(f"{EP_VOTES}/{vid}/enable", headers=hdrs()) as r:
         await r.read()
