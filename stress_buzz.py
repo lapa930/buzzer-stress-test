@@ -7,7 +7,7 @@ from collections import Counter
 parser = argparse.ArgumentParser()
 parser.add_argument("--url",        default="https://bc.yonsei.or.kr")
 parser.add_argument("--api-prefix", default="/hidden", dest="api_prefix")
-parser.add_argument("--users",      type=int,   default=1000)
+parser.add_argument("--users",      type=int,   default=2000)
 parser.add_argument("--conc",       type=int,   default=100)
 parser.add_argument("--vote",       default=None)
 parser.add_argument("--admin",      default="hidden_admin")
@@ -43,7 +43,7 @@ async def check_connection(session) -> bool:
 async def gen_token(session, sem):
     async with sem:
         try:
-            async with session.post(EP_TOKEN, timeout=aiohttp.ClientTimeout(total=20)) as r:
+            async with session.post(EP_TOKEN, timeout=aiohttp.ClientTimeout(total=10)) as r:
                 if r.status != 200:
                     async with lock: err_list.append(f"HTTP {r.status}")
                     return None
@@ -78,7 +78,7 @@ async def ensure_vote(session):
         log(f"vote: {args.vote}")
         return args.vote
     async with session.post(EP_VOTES,
-        json={"title": "StressTest", "count_max": 99999}, headers=hdrs()) as r:
+        json={"title": "StressTest", "count_max": 9999}, headers=hdrs()) as r:
         vid = (await r.json(content_type=None))["id"]
     async with session.post(f"{EP_VOTES}/{vid}/enable", headers=hdrs()) as r:
         await r.read()
