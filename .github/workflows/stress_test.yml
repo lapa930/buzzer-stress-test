@@ -55,7 +55,7 @@ jobs:
             RESP=$(curl -sf -X POST "$URL$PREFIX/api/votes" \
               -H "Content-Type: application/json" \
               -H "X-Admin-Password: $ADMIN" \
-              -d '{"title":"GitHub-StressTest","count_max":99999}')
+              -d '{"title":"GitHub-StressTest","count_max":9999}')
             echo "응답: $RESP"
             VOTE_ID=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 
